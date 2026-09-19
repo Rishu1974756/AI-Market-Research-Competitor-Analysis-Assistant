@@ -35,7 +35,7 @@ function validateResearchTopic(query: string): string {
   }
 
   if (value.length < 3) {
-    return "Please enter a meaningful product, company, service, or industry.";
+    return "Invalid research topic format. Please enter a clear product, company, service, or industry.";
   }
 
   if (value.length > 200) {
@@ -89,7 +89,7 @@ function validateResearchTopic(query: string): string {
   const compactValue = normalized.replace(/\s/g, "");
 
   if (/^(.)\1{3,}$/i.test(compactValue)) {
-    return "Please enter a meaningful research topic.";
+    return "Invalid research topic format. Please enter a meaningful research topic.";
   }
 
   const keyboardPatterns = [
@@ -533,41 +533,49 @@ export default function Home() {
     const reportElement =
       document.getElementById("research-report");
 
-    if (!reportElement || !report) {
+    const reportHeader =
+      document.getElementById(
+        "research-report-header"
+      );
+
+    const reportContent =
+      document.getElementById(
+        "research-report-content"
+      );
+
+    if (!reportElement || !reportHeader || !reportContent || !report) {
       return;
     }
 
-    try {
-      setErrorMessage("");
+    const previousCompetitorSearch =
+      competitorSearch;
 
-      const canvas = await html2canvas(reportElement, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: darkMode
-          ? "#0d0f12"
-          : "#ffffff",
-        logging: false,
-        windowWidth: reportElement.scrollWidth,
+    const waitForRender = () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve();
+          });
+        });
       });
 
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-        compress: true,
-      });
-
+    const addCanvasToPdf = async (
+      pdf: jsPDF,
+      canvas: HTMLCanvasElement,
+      state: { hasPage: boolean }
+    ) => {
       const pageWidth = 210;
       const pageHeight = 297;
       const margin = 10;
-      const contentWidth = pageWidth - margin * 2;
-      const pageContentHeight = pageHeight - margin * 2;
+      const contentWidth =
+        pageWidth - margin * 2;
+      const pageContentHeight =
+        pageHeight - margin * 2;
 
       let sourceY = 0;
-      let pageNumber = 0;
 
       while (sourceY < canvas.height) {
-        if (pageNumber > 0) {
+        if (state.hasPage) {
           pdf.addPage();
         }
 
@@ -588,7 +596,8 @@ export default function Home() {
         pageCanvas.width = canvas.width;
         pageCanvas.height = pagePixelHeight;
 
-        const context = pageCanvas.getContext("2d");
+        const context =
+          pageCanvas.getContext("2d");
 
         if (!context) {
           throw new Error(
@@ -638,8 +647,120 @@ export default function Home() {
           renderedHeight
         );
 
+        state.hasPage = true;
         sourceY += pagePixelHeight;
-        pageNumber += 1;
+      }
+    };
+
+    try {
+      setErrorMessage("");
+
+      // Export should contain the complete competitor table,
+      // not only the rows currently filtered in the UI.
+      if (previousCompetitorSearch) {
+        setCompetitorSearch("");
+        await waitForRender();
+      }
+
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+
+      const pdfState = {
+        hasPage: false,
+      };
+
+      const canvasOptions = {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: darkMode
+          ? "#0d0f12"
+          : "#ffffff",
+        logging: false,
+        windowWidth:
+          reportElement.scrollWidth,
+      };
+
+      // Export the report header once.
+      const headerCanvas =
+        await html2canvas(
+          reportHeader,
+          canvasOptions
+        );
+
+      await addCanvasToPdf(
+        pdf,
+        headerCanvas,
+        pdfState
+      );
+
+      // Each report tab is rendered one after another so
+      // the PDF contains every section, regardless of which
+      // tab the user selected on screen.
+      const tabButtons = Array.from(
+        reportElement.querySelectorAll<HTMLButtonElement>(
+          "[data-report-tab]"
+        )
+      );
+
+      const currentTab = tabButtons.find(
+        (button) =>
+          button.getAttribute(
+            "aria-pressed"
+          ) === "true"
+      );
+
+      for (const button of tabButtons) {
+        const sectionId =
+          button.getAttribute(
+            "data-report-tab"
+          );
+
+        if (!sectionId) {
+          continue;
+        }
+
+        button.click();
+        await waitForRender();
+
+        if (
+          sectionId === "trends" &&
+          !report.marketOverview.trendAnalysis?.length
+        ) {
+          continue;
+        }
+
+        const sectionCanvas =
+          await html2canvas(
+            reportContent,
+            canvasOptions
+          );
+
+        if (
+          sectionCanvas.width === 0 ||
+          sectionCanvas.height === 0
+        ) {
+          continue;
+        }
+
+        await addCanvasToPdf(
+          pdf,
+          sectionCanvas,
+          pdfState
+        );
+      }
+
+      // Restore the tab the user was viewing before export.
+      currentTab?.click();
+
+      // Restore the competitor search filter after export.
+      if (previousCompetitorSearch) {
+        setCompetitorSearch(
+          previousCompetitorSearch
+        );
       }
 
       const fileName =
@@ -651,11 +772,20 @@ export default function Home() {
 
       pdf.save(`${fileName}.pdf`);
     } catch (error) {
-      console.error("PDF export failed:", error);
+      console.error(
+        "PDF export failed:",
+        error
+      );
 
       setErrorMessage(
-        "Unable to export the research report as PDF."
+        "Unable to export the complete research report as PDF. Please try again."
       );
+
+      if (previousCompetitorSearch) {
+        setCompetitorSearch(
+          previousCompetitorSearch
+        );
+      }
     }
   }
 
@@ -1523,7 +1653,10 @@ function ResearchReportView({
       id="research-report"
       className="mx-auto w-full max-w-7xl min-w-0 overflow-hidden px-3 pb-24 pt-5 sm:px-5 sm:pt-8 md:px-8 md:pb-32"
     >
-      <div className="rounded-3xl border border-blue-500/10 bg-gradient-to-br from-blue-500/[0.08] via-transparent to-transparent p-5 sm:p-6 md:p-8">
+      <div
+        id="research-report-header"
+        className="rounded-3xl border border-blue-500/10 bg-gradient-to-br from-blue-500/[0.08] via-transparent to-transparent p-5 sm:p-6 md:p-8"
+      >
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div className="min-w-0 max-w-4xl">
             <div className="flex flex-wrap items-center gap-2">
@@ -1550,6 +1683,7 @@ function ResearchReportView({
           <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
             <button
               type="button"
+              data-html2canvas-ignore="true"
               onClick={onExportPDF}
               className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black hover:bg-gray-200"
             >
@@ -1558,6 +1692,7 @@ function ResearchReportView({
 
             <button
               type="button"
+              data-html2canvas-ignore="true"
               onClick={onNewResearch}
               className={`rounded-xl border px-4 py-2.5 text-sm ${
                 darkMode
@@ -1609,6 +1744,10 @@ function ResearchReportView({
             <button
               key={tab.id}
               type="button"
+              data-report-tab={tab.id}
+              aria-pressed={
+                activeSection === tab.id
+              }
               onClick={() =>
                 setActiveSection(tab.id)
               }
@@ -1626,7 +1765,10 @@ function ResearchReportView({
         </div>
       </div>
 
-      <div className="mt-8">
+      <div
+        id="research-report-content"
+        className="mt-8"
+      >
         {activeSection === "overview" && (
           <section>
             <SectionTitle

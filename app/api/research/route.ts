@@ -360,8 +360,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
+          code: "VALIDATION_SERVICE_ERROR",
           error:
-            "Unable to validate the research topic. Please try again.",
+            "Research topic validation is temporarily unavailable. Please try again later.",
         },
         { status: 502 }
       );
@@ -374,7 +375,7 @@ export async function POST(request: NextRequest) {
           field: "query",
           error:
             topicValidation.reason ||
-            "Please enter a meaningful product idea, company, service, or industry.",
+            "Invalid research topic format. Please enter a clear product, company, service, or industry.",
         },
         { status: 400 }
       );
