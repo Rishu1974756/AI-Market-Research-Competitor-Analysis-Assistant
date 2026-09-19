@@ -1,0 +1,182 @@
+{
+  "query": "AI-powered project management tool for remote teams",
+  "market": "Global",
+  "targetUser": "Remote teams and project managers",
+  "competitors": [
+    {
+      "name": "Asana",
+      "website": "https://asana.com",
+      "description": "Project management platform for teams to manage tasks, projects, workflows, and collaboration.",
+      "targetUser": "Teams and project managers",
+      "pricingModel": "Freemium",
+      "pricingTiers": [
+        "Free",
+        "Starter",
+        "Advanced"
+      ],
+      "keyFeatures": [
+        "Task management",
+        "Project tracking",
+        "Team collaboration"
+      ],
+      "fundingStatus": "Public company",
+      "founded": 2008,
+      "sources": [
+        {
+          "id": "mock-source-1",
+          "title": "Asana",
+          "url": "https://asana.com",
+          "snippet": "Project management and collaboration platform."
+        }
+      ]
+    },
+    {
+      "name": "Trello",
+      "website": "https://trello.com",
+      "description": "Visual project management platform based on boards, lists, and cards.",
+      "targetUser": "Individuals and teams",
+      "pricingModel": "Freemium",
+      "pricingTiers": [
+        "Free",
+        "Standard",
+        "Premium",
+        "Enterprise"
+      ],
+      "keyFeatures": [
+        "Kanban boards",
+        "Task cards",
+        "Team collaboration"
+      ],
+      "fundingStatus": "Acquired by Atlassian",
+      "founded": 2011,
+      "sources": [
+        {
+          "id": "mock-source-2",
+          "title": "Trello",
+          "url": "https://trello.com",
+          "snippet": "Visual tool for organizing projects and tasks."
+        }
+      ]
+    },
+    {
+      "name": "Monday.com",
+      "website": "https://monday.com",
+      "description": "Work management platform for managing projects, workflows, and team operations.",
+      "targetUser": "Businesses and teams",
+      "pricingModel": "Freemium",
+      "pricingTiers": [
+        "Free",
+        "Basic",
+        "Standard",
+        "Pro",
+        "Enterprise"
+      ],
+      "keyFeatures": [
+        "Workflow management",
+        "Project tracking",
+        "Automation"
+      ],
+      "fundingStatus": "Public company",
+      "founded": 2012,
+      "sources": [
+        {
+          "id": "mock-source-3",
+          "title": "Monday.com",
+          "url": "https://monday.com",
+          "snippet": "Work management and workflow platform."
+        }
+      ]
+    }
+  ],
+  "marketGaps": [
+    {
+      "gap": "Offline-first project management",
+      "whyMatters": "Teams working with unreliable internet connections may need access to projects and tasks while offline.",
+      "whoNeeds": "Remote and distributed teams in areas with unreliable connectivity",
+      "sources": [
+        {
+          "id": "mock-source-4",
+          "title": "Offline Collaboration Research",
+          "url": "https://example.com/offline-collaboration",
+          "snippet": "Offline access remains useful for distributed teams."
+        }
+      ]
+    },
+    {
+      "gap": "Simpler AI-assisted project planning",
+      "whyMatters": "Many project management platforms provide extensive functionality that can make planning complex for smaller teams.",
+      "whoNeeds": "Small startups and student teams",
+      "sources": [
+        {
+          "id": "mock-source-5",
+          "title": "Project Management Trends",
+          "url": "https://example.com/project-management",
+          "snippet": "Small teams increasingly seek simpler workflow tools."
+        }
+      ]
+    },
+    {
+      "gap": "Affordable advanced automation",
+      "whyMatters": "Advanced automation capabilities can be limited to higher pricing tiers.",
+      "whoNeeds": "Startups and small businesses",
+      "sources": [
+        {
+          "id": "mock-source-6",
+          "title": "Workflow Automation",
+          "url": "https://example.com/automation",
+          "snippet": "Automation is increasingly important for small teams."
+        }
+      ]
+    }
+  ],
+  "swot": {
+    "strengths": [
+      {
+        "title": "AI-assisted planning",
+        "description": "AI can reduce manual effort when creating project plans and assigning tasks.",
+        "sources": ["mock-source-1"]
+      },
+      {
+        "title": "Remote-first workflow",
+        "description": "The product can be designed specifically around distributed team collaboration.",
+        "sources": ["mock-source-2"]
+      }
+    ],
+    "weaknesses": [
+      {
+        "title": "New product adoption",
+        "description": "A new platform would need to convince teams to change from established project management tools.",
+        "sources": ["mock-source-1"]
+      },
+      {
+        "title": "Limited initial integrations",
+        "description": "A new product may initially have fewer integrations than established competitors.",
+        "sources": ["mock-source-3"]
+      }
+    ],
+    "opportunities": [
+      {
+        "title": "Growing AI adoption",
+        "description": "AI capabilities can create new ways to automate project planning and team workflows.",
+        "sources": ["mock-source-5"]
+      },
+      {
+        "title": "Underserved small teams",
+        "description": "A focused product could target smaller teams that want simpler project management.",
+        "sources": ["mock-source-5"]
+      }
+    ],
+    "threats": [
+      {
+        "title": "Established competitors",
+        "description": "Large project management platforms already have strong user bases and extensive ecosystems.",
+        "sources": ["mock-source-1", "mock-source-2"]
+      },
+      {
+        "title": "Rapid feature competition",
+        "description": "Existing platforms can add similar AI capabilities and reduce differentiation.",
+        "sources": ["mock-source-3"]
+      }
+    ]
+  }
+}
