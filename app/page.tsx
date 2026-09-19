@@ -168,7 +168,10 @@ export default function Home() {
   const router = useRouter();
 
   const [userEmail, setUserEmail] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Closed initially so mobile does not open with the sidebar covering the page.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [darkMode, setDarkMode] = useState(true);
 
   const [query, setQuery] = useState("");
@@ -186,14 +189,51 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const [competitorSearch, setCompetitorSearch] = useState("");
-  const [sortField, setSortField] = useState<keyof Competitor>("name");
+  const [sortField, setSortField] =
+    useState<keyof Competitor>("name");
   const [sortAsc, setSortAsc] = useState(true);
 
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  /*
+   * Authentication
+   */
   useEffect(() => {
     checkAuth();
+  }, []);
+
+  /*
+   * Read theme from the server-rendered html element.
+   * The actual saved theme comes from the cookie in app/layout.tsx.
+   */
+  useEffect(() => {
+    const theme =
+      document.documentElement.dataset.theme || "dark";
+
+    setDarkMode(theme === "dark");
+  }, []);
+
+  /*
+   * Desktop sidebar open.
+   * Mobile sidebar closed.
+   */
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setSidebarOpen(true);
+      } else {
+        setSidebarOpen(false);
+      }
+    };
+
+    handleResize();
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   async function checkAuth() {
@@ -352,6 +392,11 @@ export default function Home() {
         setReport(data.report);
         setCompetitorSearch("");
 
+        // Close drawer on mobile after selecting history.
+        if (window.innerWidth < 1024) {
+          setSidebarOpen(false);
+        }
+
         window.scrollTo({
           top: 0,
           behavior: "smooth",
@@ -422,6 +467,40 @@ export default function Home() {
     router.refresh();
   }
 
+  /*
+   * Theme
+   *
+   * Saves the selected theme through the cookie API.
+   * No localStorage is used.
+   */
+  async function toggleTheme() {
+    const nextTheme = darkMode ? "light" : "dark";
+
+    setDarkMode(nextTheme === "dark");
+    document.documentElement.dataset.theme = nextTheme;
+
+    document.cookie = `theme=${nextTheme}; path=/; max-age=31536000; SameSite=Lax`;
+
+    try {
+      const response = await fetch("/api/theme", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          theme: nextTheme,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save theme.");
+      }
+    } catch (error) {
+      console.error("Failed to save theme:", error);
+    }
+  }
+
   function handleSort(field: keyof Competitor) {
     if (sortField === field) {
       setSortAsc((current) => !current);
@@ -440,6 +519,10 @@ export default function Home() {
     setGeographicMarket("");
     setTargetUser("");
 
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
+
     window.scrollTo({
       top: 0,
       behavior: "smooth",
@@ -447,7 +530,8 @@ export default function Home() {
   }
 
   async function exportPDF() {
-    const reportElement = document.getElementById("research-report");
+    const reportElement =
+      document.getElementById("research-report");
 
     if (!reportElement || !report) {
       return;
@@ -459,7 +543,9 @@ export default function Home() {
       const canvas = await html2canvas(reportElement, {
         scale: 2,
         useCORS: true,
-        backgroundColor: darkMode ? "#0d0f12" : "#ffffff",
+        backgroundColor: darkMode
+          ? "#0d0f12"
+          : "#ffffff",
         logging: false,
         windowWidth: reportElement.scrollWidth,
       });
@@ -485,25 +571,35 @@ export default function Home() {
           pdf.addPage();
         }
 
-        const remainingHeight = canvas.height - sourceY;
+        const remainingHeight =
+          canvas.height - sourceY;
+
         const pagePixelHeight = Math.min(
           remainingHeight,
           Math.floor(
-            (pageContentHeight / contentWidth) * canvas.width
+            (pageContentHeight / contentWidth) *
+              canvas.width
           )
         );
 
-        const pageCanvas = document.createElement("canvas");
+        const pageCanvas =
+          document.createElement("canvas");
+
         pageCanvas.width = canvas.width;
         pageCanvas.height = pagePixelHeight;
 
         const context = pageCanvas.getContext("2d");
 
         if (!context) {
-          throw new Error("Unable to prepare PDF page.");
+          throw new Error(
+            "Unable to prepare PDF page."
+          );
         }
 
-        context.fillStyle = darkMode ? "#0d0f12" : "#ffffff";
+        context.fillStyle = darkMode
+          ? "#0d0f12"
+          : "#ffffff";
+
         context.fillRect(
           0,
           0,
@@ -523,9 +619,15 @@ export default function Home() {
           pagePixelHeight
         );
 
-        const pageImage = pageCanvas.toDataURL("image/jpeg", 0.92);
+        const pageImage =
+          pageCanvas.toDataURL(
+            "image/jpeg",
+            0.92
+          );
+
         const renderedHeight =
-          (pagePixelHeight * contentWidth) / canvas.width;
+          (pagePixelHeight * contentWidth) /
+          canvas.width;
 
         pdf.addImage(
           pageImage,
@@ -544,11 +646,13 @@ export default function Home() {
         `${report.title || "market-research-report"}`
           .replace(/[^a-z0-9]+/gi, "-")
           .replace(/^-+|-+$/g, "")
-          .toLowerCase() || "market-research-report";
+          .toLowerCase() ||
+        "market-research-report";
 
       pdf.save(`${fileName}.pdf`);
     } catch (error) {
       console.error("PDF export failed:", error);
+
       setErrorMessage(
         "Unable to export the research report as PDF."
       );
@@ -556,9 +660,12 @@ export default function Home() {
   }
 
   const filteredHistory = history.filter((item) => {
-    const value = `${item.title} ${item.query}`.toLowerCase();
+    const value =
+      `${item.title} ${item.query}`.toLowerCase();
 
-    return value.includes(searchQuery.toLowerCase());
+    return value.includes(
+      searchQuery.toLowerCase()
+    );
   });
 
   const filteredCompetitors = useMemo(() => {
@@ -566,22 +673,24 @@ export default function Home() {
       return [];
     }
 
-    const filtered = report.competitors.filter((competitor) => {
-      const value = [
-        competitor.name,
-        competitor.description,
-        competitor.targetUser,
-        competitor.pricingModel,
-        competitor.fundingStatus,
-        competitor.keyFeatures?.join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
+    const filtered = report.competitors.filter(
+      (competitor) => {
+        const value = [
+          competitor.name,
+          competitor.description,
+          competitor.targetUser,
+          competitor.pricingModel,
+          competitor.fundingStatus,
+          competitor.keyFeatures?.join(" "),
+        ]
+          .join(" ")
+          .toLowerCase();
 
-      return value.includes(
-        competitorSearch.toLowerCase()
-      );
-    });
+        return value.includes(
+          competitorSearch.toLowerCase()
+        );
+      }
+    );
 
     return [...filtered].sort((a, b) => {
       const first = String(
@@ -608,8 +717,23 @@ export default function Home() {
     : "bg-[#f5f7fa] text-[#111827]";
 
   return (
-    <main className={`min-h-screen ${pageClass}`}>
+    <main
+      className={`min-h-screen w-full overflow-x-hidden ${pageClass}`}
+    >
       <div className="flex min-h-screen">
+        {/*
+         * Mobile backdrop.
+         * Only appears below lg breakpoint.
+         */}
+        {sidebarOpen && (
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          />
+        )}
+
         <Sidebar
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
@@ -630,23 +754,45 @@ export default function Home() {
           handleLogout={handleLogout}
         />
 
+        {/*
+         * Main content.
+         *
+         * On mobile:
+         *   ml-0
+         *
+         * On desktop:
+         *   sidebar open -> ml-[270px]
+         *   sidebar closed -> ml-0
+         */}
         <section
-          className={`flex min-h-screen flex-1 flex-col transition-all duration-300 ${
-            sidebarOpen ? "ml-[270px]" : "ml-0"
+          className={`min-w-0 flex min-h-screen w-full flex-1 flex-col transition-all duration-300 ${
+            sidebarOpen
+              ? "ml-0 lg:ml-[270px]"
+              : "ml-0"
           }`}
         >
           <header
-            className={`sticky top-0 z-40 flex h-[68px] items-center justify-between border-b px-7 backdrop-blur-xl ${
+            className={`fixed right-0 top-0 z-40 flex h-16 items-center justify-between border-b px-3 backdrop-blur-xl transition-all duration-300 sm:h-[68px] sm:px-6 lg:px-7 ${
+              sidebarOpen
+                ? "left-0 lg:left-[270px]"
+                : "left-0"
+            } ${
               darkMode
-                ? "border-white/10 bg-[#0d0f12]/90"
-                : "border-gray-200 bg-white/90"
+                ? "border-white/10 bg-[#0d0f12]/95"
+                : "border-gray-200 bg-white/95"
             }`}
           >
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               {!sidebarOpen && (
                 <button
+                  type="button"
                   onClick={() => setSidebarOpen(true)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/5"
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                    darkMode
+                      ? "hover:bg-white/5"
+                      : "hover:bg-gray-100"
+                  }`}
+                  aria-label="Open sidebar"
                 >
                   ☰
                 </button>
@@ -660,16 +806,17 @@ export default function Home() {
                 </p>
 
                 {report && (
-                  <p className="truncate text-xs text-gray-500">
+                  <p className="hidden truncate text-xs text-gray-500 sm:block">
                     AI competitive intelligence report
                   </p>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
               {report && (
                 <button
+                  type="button"
                   onClick={exportPDF}
                   className={`hidden rounded-lg border px-3 py-2 text-xs font-medium sm:block ${
                     darkMode
@@ -682,42 +829,50 @@ export default function Home() {
               )}
 
               <button
-                onClick={() =>
-                  setDarkMode((current) => !current)
-                }
+                type="button"
+                onClick={toggleTheme}
                 className={`flex h-9 w-9 items-center justify-center rounded-full ${
                   darkMode
                     ? "bg-white/10"
                     : "bg-gray-200"
                 }`}
                 title="Toggle theme"
+                aria-label="Toggle theme"
               >
                 {darkMode ? "☀" : "☾"}
               </button>
 
               <button
+                type="button"
                 onClick={() =>
-                  setShowAccountMenu((current) => !current)
+                  setShowAccountMenu(
+                    (current) => !current
+                  )
                 }
                 className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
                   darkMode
                     ? "bg-white text-black"
                     : "bg-black text-white"
                 }`}
+                aria-label="Account menu"
               >
                 {userEmail
-                  ? userEmail.charAt(0).toUpperCase()
+                  ? userEmail
+                      .charAt(0)
+                      .toUpperCase()
                   : "U"}
               </button>
             </div>
           </header>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-w-0 flex-1 overflow-y-auto pt-16 sm:pt-[68px]">
             {!report ? (
               <ResearchForm
                 query={query}
                 setQuery={setQuery}
-                geographicMarket={geographicMarket}
+                geographicMarket={
+                  geographicMarket
+                }
                 setGeographicMarket={
                   setGeographicMarket
                 }
@@ -732,12 +887,16 @@ export default function Home() {
               <ResearchReportView
                 report={report}
                 competitors={filteredCompetitors}
-                competitorSearch={competitorSearch}
+                competitorSearch={
+                  competitorSearch
+                }
                 setCompetitorSearch={
                   setCompetitorSearch
                 }
                 onSort={handleSort}
-                onNewResearch={startNewResearch}
+                onNewResearch={
+                  startNewResearch
+                }
                 onExportPDF={exportPDF}
                 darkMode={darkMode}
               />
@@ -749,9 +908,9 @@ export default function Home() {
           <SettingsModal
             userEmail={userEmail}
             darkMode={darkMode}
-            setDarkMode={setDarkMode}
             setShowSettings={setShowSettings}
             handleLogout={handleLogout}
+            onToggleTheme={toggleTheme}
           />
         )}
       </div>
@@ -798,7 +957,7 @@ function Sidebar({
 }) {
   return (
     <aside
-      className={`fixed left-0 top-0 z-50 flex h-screen w-[270px] flex-col border-r transition-transform duration-300 ${
+      className={`fixed left-0 top-0 z-50 flex h-[100dvh] w-[270px] max-w-[85vw] flex-col border-r transition-transform duration-300 ${
         sidebarOpen
           ? "translate-x-0"
           : "-translate-x-full"
@@ -811,7 +970,7 @@ function Sidebar({
       <div className="px-5 pb-4 pt-5">
         <div className="flex items-center gap-3">
           <div
-            className={`flex h-11 w-11 items-center justify-center rounded-xl text-lg font-bold ${
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-lg font-bold ${
               darkMode
                 ? "bg-white text-black"
                 : "bg-black text-white"
@@ -831,8 +990,14 @@ function Sidebar({
           </div>
 
           <button
+            type="button"
             onClick={() => setSidebarOpen(false)}
-            className="ml-auto text-gray-500 hover:text-white"
+            className={`ml-auto shrink-0 text-xl text-gray-500 ${
+              darkMode
+                ? "hover:text-white"
+                : "hover:text-gray-900"
+            }`}
+            aria-label="Close sidebar"
           >
             ‹
           </button>
@@ -841,6 +1006,7 @@ function Sidebar({
 
       <div className="px-4">
         <button
+          type="button"
           onClick={onNewResearch}
           className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition ${
             darkMode
@@ -862,7 +1028,9 @@ function Sidebar({
                 : "border-gray-200 bg-gray-50"
             }`}
           >
-            <span className="text-gray-500">⌕</span>
+            <span className="text-gray-500">
+              ⌕
+            </span>
 
             <input
               autoFocus
@@ -875,6 +1043,7 @@ function Sidebar({
             />
 
             <button
+              type="button"
               onClick={() => {
                 setSearchOpen(false);
                 setSearchQuery("");
@@ -886,6 +1055,7 @@ function Sidebar({
           </div>
         ) : (
           <button
+            type="button"
             onClick={() => setSearchOpen(true)}
             className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm ${
               darkMode
@@ -928,13 +1098,26 @@ function Sidebar({
             {filteredHistory.map((item) => (
               <div
                 key={item.id}
-                className="group flex items-center rounded-lg hover:bg-white/[0.04]"
+                className={`group flex items-center rounded-lg ${
+                  darkMode
+                    ? "hover:bg-white/[0.04]"
+                    : "hover:bg-gray-100"
+                }`}
               >
                 <button
-                  onClick={() => openHistory(item)}
+                  type="button"
+                  onClick={() =>
+                    openHistory(item)
+                  }
                   className="min-w-0 flex-1 px-3 py-3 text-left"
                 >
-                  <p className="truncate text-sm text-gray-300">
+                  <p
+                    className={`truncate text-sm ${
+                      darkMode
+                        ? "text-gray-300"
+                        : "text-gray-700"
+                    }`}
+                  >
                     {item.title ||
                       item.query ||
                       "Untitled Research"}
@@ -946,7 +1129,10 @@ function Sidebar({
                 </button>
 
                 <button
-                  onClick={() => deleteResearch(item.id)}
+                  type="button"
+                  onClick={() =>
+                    deleteResearch(item.id)
+                  }
                   className="mr-2 hidden h-7 w-7 rounded-md text-xs text-gray-600 hover:bg-red-500/10 hover:text-red-400 group-hover:block"
                   title="Delete"
                 >
@@ -958,16 +1144,31 @@ function Sidebar({
         )}
       </div>
 
-      <div className="relative border-t border-white/10 p-3">
+      <div
+        className={`relative border-t p-3 ${
+          darkMode
+            ? "border-white/10"
+            : "border-gray-200"
+        }`}
+      >
         <button
+          type="button"
           onClick={() =>
-            setShowAccountMenu(!showAccountMenu)
+            setShowAccountMenu(
+              !showAccountMenu
+            )
           }
-          className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/[0.04]"
+          className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left ${
+            darkMode
+              ? "hover:bg-white/[0.04]"
+              : "hover:bg-gray-100"
+          }`}
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-xs font-bold text-black">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-black">
             {userEmail
-              ? userEmail.charAt(0).toUpperCase()
+              ? userEmail
+                  .charAt(0)
+                  .toUpperCase()
               : "U"}
           </div>
 
@@ -983,19 +1184,35 @@ function Sidebar({
             </p>
           </div>
 
-          <span className="text-gray-500">•••</span>
+          <span className="text-gray-500">
+            •••
+          </span>
         </button>
 
         {showAccountMenu && (
-          <div className="absolute bottom-16 left-3 right-3 z-50 rounded-xl border border-white/10 bg-[#20232a] p-2 shadow-2xl">
+          <div
+            className={`absolute bottom-16 left-3 right-3 z-50 rounded-xl border p-2 shadow-2xl ${
+              darkMode
+                ? "border-white/10 bg-[#20232a]"
+                : "border-gray-200 bg-white"
+            }`}
+          >
             <button
-              onClick={() => setShowSettings(true)}
-              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-white/5"
+              type="button"
+              onClick={() =>
+                setShowSettings(true)
+              }
+              className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                darkMode
+                  ? "hover:bg-white/5"
+                  : "hover:bg-gray-100"
+              }`}
             >
               Settings
             </button>
 
             <button
+              type="button"
               onClick={handleLogout}
               className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10"
             >
@@ -1031,19 +1248,15 @@ function ResearchForm({
   onSubmit: (event: FormEvent) => void;
   darkMode: boolean;
 }) {
-  const cardClass = darkMode
-    ? "border-white/10 bg-[#15181d]"
-    : "border-gray-200 bg-white";
-
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 pb-32 pt-14 md:px-10">
+    <div className="mx-auto w-full max-w-6xl px-4 pb-24 pt-10 sm:px-6 sm:pt-14 md:px-10 md:pb-32">
       <div className="mx-auto max-w-4xl text-center">
         <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-400">
           <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
           AI Market Intelligence
         </div>
 
-        <h2 className="mt-7 text-4xl font-bold tracking-tight md:text-6xl">
+        <h2 className="mt-7 text-3xl font-bold tracking-tight sm:text-4xl md:text-6xl">
           Research the market
           <br />
           <span className="text-gray-500">
@@ -1052,7 +1265,7 @@ function ResearchForm({
         </h2>
 
         <p
-          className={`mx-auto mt-6 max-w-2xl text-base leading-7 ${
+          className={`mx-auto mt-5 max-w-2xl text-sm leading-7 sm:mt-6 sm:text-base ${
             darkMode
               ? "text-gray-400"
               : "text-gray-600"
@@ -1066,15 +1279,17 @@ function ResearchForm({
 
       <form
         onSubmit={onSubmit}
-        className={`mx-auto mt-12 max-w-4xl rounded-3xl border p-2 shadow-2xl ${
+        className={`mx-auto mt-8 max-w-4xl rounded-3xl border p-2 shadow-2xl sm:mt-12 ${
           darkMode
             ? "border-white/10 bg-[#15181d]"
             : "border-gray-200 bg-white"
         }`}
       >
         <div
-          className={`rounded-2xl p-6 ${
-            darkMode ? "bg-[#101216]" : "bg-gray-50"
+          className={`rounded-2xl p-4 sm:p-6 ${
+            darkMode
+              ? "bg-[#101216]"
+              : "bg-gray-50"
           }`}
         >
           <label className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
@@ -1088,7 +1303,7 @@ function ResearchForm({
             }
             placeholder="Example: AI-powered project management platform for remote teams"
             rows={5}
-            className={`mt-3 w-full resize-none bg-transparent text-lg leading-7 outline-none ${
+            className={`mt-3 w-full resize-none bg-transparent text-base leading-7 outline-none sm:text-lg ${
               darkMode
                 ? "placeholder:text-gray-700"
                 : "placeholder:text-gray-400"
@@ -1187,16 +1402,16 @@ function ResearchProgress({
 
   return (
     <div
-      className={`mx-auto mt-8 max-w-4xl rounded-2xl border p-6 ${
+      className={`mx-auto mt-8 max-w-4xl rounded-2xl border p-4 sm:p-6 ${
         darkMode
           ? "border-white/10 bg-[#15181d]"
           : "border-gray-200 bg-white"
       }`}
     >
       <div className="flex items-center gap-3">
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-gray-600 border-t-white" />
+        <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-gray-600 border-t-white" />
 
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold">
             Building your market report
           </p>
@@ -1250,7 +1465,8 @@ function ResearchReportView({
   onExportPDF: () => void;
   darkMode: boolean;
 }) {
-  const [activeSection, setActiveSection] = useState("overview");
+  const [activeSection, setActiveSection] =
+    useState("overview");
 
   const cardClass = darkMode
     ? "border-white/10 bg-[#15181d]"
@@ -1260,32 +1476,56 @@ function ResearchReportView({
     ? "text-gray-400"
     : "text-gray-600";
 
-  const totalSources = report.sources?.length || 0;
+  const totalSources =
+    report.sources?.length || 0;
 
-  const totalFeatures = report.competitors.reduce(
-    (sum, competitor) =>
-      sum + (competitor.keyFeatures?.length || 0),
-    0
-  );
+  const totalFeatures =
+    report.competitors.reduce(
+      (sum, competitor) =>
+        sum +
+        (competitor.keyFeatures?.length || 0),
+      0
+    );
 
   const tabs = [
-    { id: "overview", label: "Market Overview" },
-    { id: "competitors", label: "Competitors" },
-    { id: "pricing", label: "Pricing" },
-    { id: "trends", label: "Trends" },
-    { id: "gaps", label: "Gaps" },
-    { id: "swot", label: "SWOT" },
-    { id: "sources", label: "Sources" },
+    {
+      id: "overview",
+      label: "Market Overview",
+    },
+    {
+      id: "competitors",
+      label: "Competitors",
+    },
+    {
+      id: "pricing",
+      label: "Pricing",
+    },
+    {
+      id: "trends",
+      label: "Trends",
+    },
+    {
+      id: "gaps",
+      label: "Gaps",
+    },
+    {
+      id: "swot",
+      label: "SWOT",
+    },
+    {
+      id: "sources",
+      label: "Sources",
+    },
   ];
 
   return (
     <div
       id="research-report"
-      className="mx-auto w-full max-w-7xl px-5 pb-32 pt-8 md:px-8"
+      className="mx-auto w-full max-w-7xl min-w-0 overflow-hidden px-3 pb-24 pt-5 sm:px-5 sm:pt-8 md:px-8 md:pb-32"
     >
-      <div className="rounded-3xl border border-blue-500/10 bg-gradient-to-br from-blue-500/[0.08] via-transparent to-transparent p-6 md:p-8">
-        <div className="flex flex-col justify-between gap-7 lg:flex-row lg:items-end">
-          <div className="max-w-4xl">
+      <div className="rounded-3xl border border-blue-500/10 bg-gradient-to-br from-blue-500/[0.08] via-transparent to-transparent p-5 sm:p-6 md:p-8">
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div className="min-w-0 max-w-4xl">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-blue-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-400">
                 Research Report
@@ -1296,19 +1536,20 @@ function ResearchReportView({
               </span>
             </div>
 
-            <h1 className="mt-4 text-3xl font-bold tracking-tight md:text-5xl">
+            <h1 className="mt-4 break-words text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">
               {report.title}
             </h1>
 
             <p
-              className={`mt-4 max-w-4xl text-sm leading-7 ${mutedClass}`}
+              className={`mt-4 max-w-4xl break-words text-sm leading-7 ${mutedClass}`}
             >
               {report.query}
             </p>
           </div>
 
-          <div className="flex shrink-0 gap-2">
+          <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
             <button
+              type="button"
               onClick={onExportPDF}
               className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black hover:bg-gray-200"
             >
@@ -1316,6 +1557,7 @@ function ResearchReportView({
             </button>
 
             <button
+              type="button"
               onClick={onNewResearch}
               className={`rounded-xl border px-4 py-2.5 text-sm ${
                 darkMode
@@ -1330,12 +1572,16 @@ function ResearchReportView({
 
         <div className="mt-7 grid grid-cols-2 gap-3 md:grid-cols-4">
           <MetricCard
-            value={String(report.competitors.length)}
+            value={String(
+              report.competitors.length
+            )}
             label="Competitors"
           />
 
           <MetricCard
-            value={String(report.marketGaps.length)}
+            value={String(
+              report.marketGaps.length
+            )}
             label="Market gaps"
           />
 
@@ -1352,19 +1598,21 @@ function ResearchReportView({
       </div>
 
       <div
-        className={`sticky top-[68px] z-30 mt-6 rounded-2xl border p-2 backdrop-blur-xl ${
+        className={`sticky top-16 z-30 mt-4 rounded-2xl border p-2 backdrop-blur-xl sm:top-[68px] sm:mt-6 ${
           darkMode
             ? "border-white/10 bg-[#111318]/95"
             : "border-gray-200 bg-white/95"
         }`}
       >
-        <div className="flex items-center gap-1 overflow-x-auto">
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveSection(tab.id)}
-              className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+              onClick={() =>
+                setActiveSection(tab.id)
+              }
+              className={`shrink-0 rounded-xl px-3 py-2.5 text-xs font-medium transition sm:px-4 sm:text-sm ${
                 activeSection === tab.id
                   ? "bg-blue-500 text-white shadow-sm"
                   : darkMode
@@ -1389,14 +1637,20 @@ function ResearchReportView({
             <div className="grid gap-3 md:grid-cols-3">
               <InfoCard
                 title="Industry"
-                value={report.marketOverview.industry}
+                value={
+                  report.marketOverview
+                    .industry
+                }
                 icon="◈"
                 darkMode={darkMode}
               />
 
               <InfoCard
                 title="Target Market"
-                value={report.marketOverview.targetMarket}
+                value={
+                  report.marketOverview
+                    .targetMarket
+                }
                 icon="◎"
                 darkMode={darkMode}
               />
@@ -1404,7 +1658,8 @@ function ResearchReportView({
               <InfoCard
                 title="Geographic Market"
                 value={
-                  report.marketOverview.geographicMarket ||
+                  report.marketOverview
+                    .geographicMarket ||
                   "Not specified"
                 }
                 icon="⌖"
@@ -1413,22 +1668,29 @@ function ResearchReportView({
             </div>
 
             <div
-              className={`mt-3 rounded-2xl border p-6 ${cardClass}`}
+              className={`mt-3 rounded-2xl border p-5 sm:p-6 ${cardClass}`}
             >
               <div className="flex items-center gap-2">
-                <span className="text-blue-400">✦</span>
+                <span className="text-blue-400">
+                  ✦
+                </span>
+
                 <h3 className="font-semibold">
                   Executive Summary
                 </h3>
               </div>
 
               <p
-                className={`mt-4 max-w-5xl text-sm leading-7 ${mutedClass}`}
+                className={`mt-4 max-w-5xl break-words text-sm leading-7 ${mutedClass}`}
               >
-                {report.marketOverview.summary}
+                {
+                  report.marketOverview
+                    .summary
+                }
               </p>
 
-              {report.marketOverview.trends?.length > 0 && (
+              {report.marketOverview.trends
+                ?.length > 0 && (
                 <div className="mt-6">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
                     Key signals
@@ -1465,14 +1727,18 @@ function ResearchReportView({
 
             <div className="mb-4 flex flex-col gap-3 md:flex-row">
               <div
-                className={`flex flex-1 items-center gap-3 rounded-xl border px-4 py-3 ${cardClass}`}
+                className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl border px-4 py-3 ${cardClass}`}
               >
-                <span className="text-gray-500">⌕</span>
+                <span className="text-gray-500">
+                  ⌕
+                </span>
 
                 <input
                   value={competitorSearch}
                   onChange={(event) =>
-                    setCompetitorSearch(event.target.value)
+                    setCompetitorSearch(
+                      event.target.value
+                    )
                   }
                   placeholder="Search competitors, features, users..."
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
@@ -1480,7 +1746,7 @@ function ResearchReportView({
               </div>
 
               <div
-                className={`flex items-center justify-center rounded-xl border px-4 text-xs ${cardClass}`}
+                className={`flex min-h-12 items-center justify-center rounded-xl border px-4 text-xs ${cardClass}`}
               >
                 {competitors.length} results
               </div>
@@ -1501,7 +1767,9 @@ function ResearchReportView({
                     <tr>
                       <TableHeader
                         label="Company"
-                        onClick={() => onSort("name")}
+                        onClick={() =>
+                          onSort("name")
+                        }
                       />
 
                       <TableHeader
@@ -1514,7 +1782,9 @@ function ResearchReportView({
                       <TableHeader
                         label="Pricing"
                         onClick={() =>
-                          onSort("pricingModel")
+                          onSort(
+                            "pricingModel"
+                          )
                         }
                       />
 
@@ -1525,7 +1795,9 @@ function ResearchReportView({
                       <TableHeader
                         label="Funding"
                         onClick={() =>
-                          onSort("fundingStatus")
+                          onSort(
+                            "fundingStatus"
+                          )
                         }
                       />
 
@@ -1540,7 +1812,11 @@ function ResearchReportView({
                       (competitor, index) => (
                         <tr
                           key={`${competitor.name}-${index}`}
-                          className="border-t border-white/5 transition hover:bg-white/[0.025]"
+                          className={`border-t transition ${
+                            darkMode
+                              ? "border-white/5 hover:bg-white/[0.025]"
+                              : "border-gray-100 hover:bg-gray-50"
+                          }`}
                         >
                           <td className="px-5 py-5 align-top">
                             <p className="font-semibold">
@@ -1549,12 +1825,16 @@ function ResearchReportView({
 
                             {competitor.website ? (
                               <a
-                                href={competitor.website}
+                                href={
+                                  competitor.website
+                                }
                                 target="_blank"
                                 rel="noreferrer"
                                 className="mt-1 block max-w-[230px] truncate text-xs text-blue-400 hover:underline"
                               >
-                                {competitor.website}
+                                {
+                                  competitor.website
+                                }
                               </a>
                             ) : (
                               <span className="mt-1 block text-xs text-gray-600">
@@ -1566,13 +1846,17 @@ function ResearchReportView({
                           <td
                             className={`max-w-[190px] px-5 py-5 align-top ${mutedClass}`}
                           >
-                            {competitor.targetUser}
+                            {
+                              competitor.targetUser
+                            }
                           </td>
 
                           <td
                             className={`max-w-[190px] px-5 py-5 align-top ${mutedClass}`}
                           >
-                            {competitor.pricingModel}
+                            {
+                              competitor.pricingModel
+                            }
                           </td>
 
                           <td className="px-5 py-5 align-top">
@@ -1585,7 +1869,9 @@ function ResearchReportView({
                                     featureIndex
                                   ) => (
                                     <span
-                                      key={featureIndex}
+                                      key={
+                                        featureIndex
+                                      }
                                       className={`rounded-md px-2 py-1 text-[11px] ${
                                         darkMode
                                           ? "bg-white/5 text-gray-300"
@@ -1602,14 +1888,19 @@ function ResearchReportView({
                           <td
                             className={`max-w-[180px] px-5 py-5 align-top ${mutedClass}`}
                           >
-                            {competitor.fundingStatus}
+                            {
+                              competitor.fundingStatus
+                            }
                           </td>
 
                           <td className="px-5 py-5 align-top">
-                            {competitor.sources?.[0] && (
+                            {competitor
+                              .sources?.[0] && (
                               <a
                                 href={
-                                  competitor.sources[0].url
+                                  competitor
+                                    .sources[0]
+                                    .url
                                 }
                                 target="_blank"
                                 rel="noreferrer"
@@ -1660,48 +1951,55 @@ function ResearchReportView({
             />
 
             <div className="grid gap-4 md:grid-cols-2">
-              {report.marketGaps.map((gap, index) => (
-                <div
-                  key={gap.id || index}
-                  className={`group rounded-2xl border p-6 transition hover:-translate-y-0.5 ${cardClass}`}
-                >
-                  <div className="flex items-start justify-between">
-                    <span className="rounded-lg bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-400">
-                      Gap {String(index + 1).padStart(2, "0")}
-                    </span>
-
-                    <span className="text-gray-700">
-                      ↗
-                    </span>
-                  </div>
-
-                  <h3 className="mt-5 text-lg font-semibold">
-                    {gap.gap}
-                  </h3>
-
-                  <p
-                    className={`mt-3 text-sm leading-6 ${mutedClass}`}
+              {report.marketGaps.map(
+                (gap, index) => (
+                  <div
+                    key={gap.id || index}
+                    className={`group rounded-2xl border p-5 transition hover:-translate-y-0.5 sm:p-6 ${cardClass}`}
                   >
-                    {gap.description}
-                  </p>
+                    <div className="flex items-start justify-between">
+                      <span className="rounded-lg bg-blue-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-400">
+                        Gap{" "}
+                        {String(
+                          index + 1
+                        ).padStart(2, "0")}
+                      </span>
 
-                  <div className="mt-6 grid gap-4">
-                    <MiniInsight
-                      label="Why it matters"
-                      value={gap.whyMatters}
-                      darkMode={darkMode}
-                    />
+                      <span className="text-gray-700">
+                        ↗
+                      </span>
+                    </div>
 
-                    <MiniInsight
-                      label="Who needs it"
-                      value={gap.whoNeeds}
-                      darkMode={darkMode}
+                    <h3 className="mt-5 break-words text-lg font-semibold">
+                      {gap.gap}
+                    </h3>
+
+                    <p
+                      className={`mt-3 break-words text-sm leading-6 ${mutedClass}`}
+                    >
+                      {gap.description}
+                    </p>
+
+                    <div className="mt-6 grid gap-4">
+                      <MiniInsight
+                        label="Why it matters"
+                        value={gap.whyMatters}
+                        darkMode={darkMode}
+                      />
+
+                      <MiniInsight
+                        label="Who needs it"
+                        value={gap.whoNeeds}
+                        darkMode={darkMode}
+                      />
+                    </div>
+
+                    <SourceLinks
+                      sources={gap.sources}
                     />
                   </div>
-
-                  <SourceLinks sources={gap.sources} />
-                </div>
-              ))}
+                )
+              )}
             </div>
           </section>
         )}
@@ -1731,7 +2029,9 @@ function ResearchReportView({
               <SwotCard
                 title="Opportunities"
                 label="O"
-                items={report.swot.opportunities}
+                items={
+                  report.swot.opportunities
+                }
                 darkMode={darkMode}
               />
 
@@ -1753,14 +2053,16 @@ function ResearchReportView({
             />
 
             <div className="grid gap-4 md:grid-cols-2">
-              {report.sources.map((source, index) => (
-                <SourceCard
-                  key={`${source.id || "source"}-${index}`}
-                  source={source}
-                  index={index}
-                  darkMode={darkMode}
-                />
-              ))}
+              {report.sources.map(
+                (source, index) => (
+                  <SourceCard
+                    key={`${source.id || "source"}-${index}`}
+                    source={source}
+                    index={index}
+                    darkMode={darkMode}
+                  />
+                )
+              )}
             </div>
           </section>
         )}
@@ -1768,8 +2070,8 @@ function ResearchReportView({
 
       <div className="mt-12 border-t border-white/10 pt-8 text-center">
         <p className="text-xs text-gray-600">
-          MarketResearch AI · Research generated from
-          supplied web evidence
+          MarketResearch AI · Research generated
+          from supplied web evidence
         </p>
       </div>
     </div>
@@ -1813,73 +2115,90 @@ function PricingSection({
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {competitorsWithPricing.map((competitor) => (
-          <div
-            key={competitor.name}
-            className={`overflow-hidden rounded-2xl border ${darkMode ? "border-white/10 bg-[#15181d]" : "border-gray-200 bg-white"}`}
-          >
-            <div className="border-b border-white/5 px-5 py-4">
-              <p className="font-semibold">
-                {competitor.name}
-              </p>
+        {competitorsWithPricing.map(
+          (competitor) => (
+            <div
+              key={competitor.name}
+              className={`overflow-hidden rounded-2xl border ${
+                darkMode
+                  ? "border-white/10 bg-[#15181d]"
+                  : "border-gray-200 bg-white"
+              }`}
+            >
+              <div className="border-b border-white/5 px-5 py-4">
+                <p className="font-semibold">
+                  {competitor.name}
+                </p>
 
-              <p className="mt-1 text-xs text-gray-500">
-                {competitor.pricingModel}
-              </p>
-            </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  {competitor.pricingModel}
+                </p>
+              </div>
 
-            <div className="divide-y divide-white/5">
-              {competitor.pricingTiers.map(
-                (tier, index) => (
-                  <div
-                    key={`${tier.name}-${index}`}
-                    className="p-5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">
-                          {tier.name}
-                        </p>
+              <div className="divide-y divide-white/5">
+                {competitor.pricingTiers.map(
+                  (tier, index) => (
+                    <div
+                      key={`${tier.name}-${index}`}
+                      className="p-5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {tier.name}
+                          </p>
 
-                        <p className="mt-2 text-xl font-bold">
-                          {tier.price}
-                        </p>
+                          <p className="mt-2 text-xl font-bold">
+                            {tier.price}
+                          </p>
+                        </div>
+
+                        {tier.billingPeriod && (
+                          <span className="text-xs text-gray-500">
+                            {
+                              tier.billingPeriod
+                            }
+                          </span>
+                        )}
                       </div>
 
-                      {tier.billingPeriod && (
-                        <span className="text-xs text-gray-500">
-                          {tier.billingPeriod}
-                        </span>
+                      {tier.features?.length >
+                        0 && (
+                        <ul className="mt-4 space-y-2">
+                          {tier.features
+                            .slice(0, 5)
+                            .map(
+                              (
+                                feature,
+                                featureIndex
+                              ) => (
+                                <li
+                                  key={
+                                    featureIndex
+                                  }
+                                  className="flex gap-2 text-xs text-gray-500"
+                                >
+                                  <span className="text-blue-400">
+                                    ✓
+                                  </span>
+
+                                  {feature}
+                                </li>
+                              )
+                            )}
+                        </ul>
                       )}
+
+                      <SourceLinks
+                        sources={tier.sources}
+                      />
                     </div>
-
-                    {tier.features?.length > 0 && (
-                      <ul className="mt-4 space-y-2">
-                        {tier.features
-                          .slice(0, 5)
-                          .map((feature, featureIndex) => (
-                            <li
-                              key={featureIndex}
-                              className="flex gap-2 text-xs text-gray-500"
-                            >
-                              <span className="text-blue-400">
-                                ✓
-                              </span>
-                              {feature}
-                            </li>
-                          ))}
-                      </ul>
-                    )}
-
-                    <SourceLinks
-                      sources={tier.sources}
-                    />
-                  </div>
-                )
-              )}
+                  )
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        )}
       </div>
     </section>
   );
@@ -1916,23 +2235,31 @@ function TrendSection({
                 : "border-gray-200 bg-white"
             }`}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <span className="text-xs font-semibold text-blue-400">
-                TREND {String(index + 1).padStart(2, "0")}
+                TREND{" "}
+                {String(index + 1).padStart(
+                  2,
+                  "0"
+                )}
               </span>
 
-              <TrendBadge direction={trend.direction} />
+              <TrendBadge
+                direction={trend.direction}
+              />
             </div>
 
             <h3 className="mt-4 font-semibold">
               {trend.title}
             </h3>
 
-            <p className="mt-3 text-sm leading-6 text-gray-500">
+            <p className="mt-3 break-words text-sm leading-6 text-gray-500">
               {trend.summary}
             </p>
 
-            <SourceLinks sources={trend.sources} />
+            <SourceLinks
+              sources={trend.sources}
+            />
           </div>
         ))}
       </div>
@@ -1947,7 +2274,9 @@ function PositioningSection({
   report: ResearchReport;
   darkMode: boolean;
 }) {
-  const points = (report.positioning || []).filter(
+  const points = (
+    report.positioning || []
+  ).filter(
     (point) =>
       point.startingPrice !== null &&
       Number.isFinite(point.startingPrice)
@@ -1958,12 +2287,16 @@ function PositioningSection({
   }
 
   const maxPrice = Math.max(
-    ...points.map((point) => point.startingPrice || 0),
+    ...points.map(
+      (point) => point.startingPrice || 0
+    ),
     1
   );
 
   const maxFeatures = Math.max(
-    ...points.map((point) => point.featureCount),
+    ...points.map(
+      (point) => point.featureCount
+    ),
     1
   );
 
@@ -1975,7 +2308,7 @@ function PositioningSection({
       />
 
       <div
-        className={`rounded-2xl border p-6 ${
+        className={`rounded-2xl border p-4 sm:p-6 ${
           darkMode
             ? "border-white/10 bg-[#15181d]"
             : "border-gray-200 bg-white"
@@ -1997,12 +2330,12 @@ function PositioningSection({
           </span>
 
           <span>
-            {points.length} competitors with verified
-            numeric pricing
+            {points.length} competitors with
+            verified numeric pricing
           </span>
         </div>
 
-        <div className="relative h-[420px] overflow-hidden rounded-xl border border-white/5 bg-white/[0.02]">
+        <div className="relative h-[320px] overflow-hidden rounded-xl border border-white/5 bg-white/[0.02] sm:h-[420px]">
           <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:25%_25%]" />
 
           <div className="absolute bottom-0 left-0 right-0 h-px bg-white/10" />
@@ -2039,10 +2372,11 @@ function PositioningSection({
                     </p>
 
                     <p className="mt-1 text-[11px] text-gray-400">
-                      {point.currency || ""}{" "}
+                      {point.currency || ""}
                       {point.startingPrice}
                       {" · "}
-                      {point.featureCount} features
+                      {point.featureCount}{" "}
+                      features
                     </p>
                   </div>
                 </div>
@@ -2066,7 +2400,7 @@ function PositioningSection({
               className="rounded-lg bg-white/[0.04] px-3 py-2 text-[11px] text-gray-400"
             >
               {point.competitor} ·{" "}
-              {point.currency || ""}{" "}
+              {point.currency || ""}
               {point.startingPrice}
             </span>
           ))}
@@ -2107,12 +2441,12 @@ function MetricCard({
   label: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-black/10 p-4">
-      <p className="text-2xl font-bold">
+    <div className="rounded-xl border border-white/10 bg-black/10 p-3 sm:p-4">
+      <p className="text-xl font-bold sm:text-2xl">
         {value}
       </p>
 
-      <p className="mt-1 text-[10px] uppercase tracking-[0.12em] text-gray-500">
+      <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-gray-500 sm:text-[10px]">
         {label}
       </p>
     </div>
@@ -2179,7 +2513,7 @@ function SectionTitle({
         {title}
       </h2>
 
-      <p className="mt-1 text-sm text-gray-500">
+      <p className="mt-1 break-words text-sm text-gray-500">
         {description}
       </p>
     </div>
@@ -2215,7 +2549,7 @@ function InfoCard({
         </span>
       </div>
 
-      <p className="mt-3 text-sm font-medium leading-6">
+      <p className="mt-3 break-words text-sm font-medium leading-6">
         {value}
       </p>
     </div>
@@ -2271,6 +2605,7 @@ function TableHeader({
         className="inline-flex items-center gap-1 hover:text-blue-400"
       >
         {label}
+
         <span className="text-[10px]">
           ↕
         </span>
@@ -2300,7 +2635,7 @@ function MiniInsight({
         {label}
       </p>
 
-      <p className="mt-2 text-sm leading-6 text-gray-500">
+      <p className="mt-2 break-words text-sm leading-6 text-gray-500">
         {value}
       </p>
     </div>
@@ -2320,14 +2655,14 @@ function SwotCard({
 }) {
   return (
     <div
-      className={`rounded-2xl border p-6 ${
+      className={`rounded-2xl border p-5 sm:p-6 ${
         darkMode
           ? "border-white/10 bg-[#15181d]"
           : "border-gray-200 bg-white"
       }`}
     >
       <div className="flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-sm font-bold text-blue-400">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-sm font-bold text-blue-400">
           {label}
         </div>
 
@@ -2342,7 +2677,7 @@ function SwotCard({
             key={index}
             className="border-l border-white/10 pl-4"
           >
-            <p className="text-sm leading-6">
+            <p className="break-words text-sm leading-6">
               {item.text}
             </p>
 
@@ -2367,17 +2702,19 @@ function SourceLinks({
 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
-      {sources.slice(0, 3).map((source, index) => (
-        <a
-          key={`${source.id || "source"}-${index}`}
-          href={source.url}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-md bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-400 hover:bg-blue-500/20"
-        >
-          [{index + 1}] Source ↗
-        </a>
-      ))}
+      {sources
+        .slice(0, 3)
+        .map((source, index) => (
+          <a
+            key={`${source.id || "source"}-${index}`}
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md bg-blue-500/10 px-2 py-1 text-[10px] font-medium text-blue-400 hover:bg-blue-500/20"
+          >
+            [{index + 1}] Source ↗
+          </a>
+        ))}
     </div>
   );
 }
@@ -2393,13 +2730,13 @@ function SourceCard({
 }) {
   return (
     <div
-      className={`rounded-xl border p-5 ${
+      className={`rounded-xl border p-4 sm:p-5 ${
         darkMode
           ? "border-white/10 bg-[#15181d]"
           : "border-gray-200 bg-white"
       }`}
     >
-      <div className="flex gap-4">
+      <div className="flex gap-3 sm:gap-4">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-400">
           {index + 1}
         </div>
@@ -2409,17 +2746,17 @@ function SourceCard({
             href={source.url}
             target="_blank"
             rel="noreferrer"
-            className="text-sm font-semibold hover:text-blue-400 hover:underline"
+            className="break-words text-sm font-semibold hover:text-blue-400 hover:underline"
           >
             {source.title}
           </a>
 
-          <p className="mt-1 text-[10px] text-gray-600">
+          <p className="mt-1 break-all text-[10px] text-gray-600">
             {source.domain || source.url}
           </p>
 
           {source.snippet && (
-            <p className="mt-3 text-sm leading-6 text-gray-500">
+            <p className="mt-3 break-words text-sm leading-6 text-gray-500">
               {source.snippet}
             </p>
           )}
@@ -2467,20 +2804,20 @@ function EmptyEvidence({
 function SettingsModal({
   userEmail,
   darkMode,
-  setDarkMode,
   setShowSettings,
   handleLogout,
+  onToggleTheme,
 }: {
   userEmail: string;
   darkMode: boolean;
-  setDarkMode: (value: boolean) => void;
   setShowSettings: (value: boolean) => void;
   handleLogout: () => void;
+  onToggleTheme: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-5 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div
-        className={`w-full max-w-md rounded-2xl border p-6 shadow-2xl ${
+        className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl sm:p-6 ${
           darkMode
             ? "border-white/10 bg-[#17191e]"
             : "border-gray-200 bg-white"
@@ -2492,7 +2829,10 @@ function SettingsModal({
           </h2>
 
           <button
-            onClick={() => setShowSettings(false)}
+            type="button"
+            onClick={() =>
+              setShowSettings(false)
+            }
             className="text-gray-500 hover:text-white"
           >
             ×
@@ -2505,7 +2845,7 @@ function SettingsModal({
               Account
             </p>
 
-            <p className="mt-2 text-sm">
+            <p className="mt-2 break-all text-sm">
               {userEmail}
             </p>
           </div>
@@ -2516,7 +2856,8 @@ function SettingsModal({
             </p>
 
             <button
-              onClick={() => setDarkMode(!darkMode)}
+              type="button"
+              onClick={onToggleTheme}
               className={`mt-2 flex w-full items-center justify-between rounded-xl border px-4 py-3 text-sm ${
                 darkMode
                   ? "border-white/10"
@@ -2536,6 +2877,7 @@ function SettingsModal({
           </div>
 
           <button
+            type="button"
             onClick={handleLogout}
             className="w-full rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10"
           >
