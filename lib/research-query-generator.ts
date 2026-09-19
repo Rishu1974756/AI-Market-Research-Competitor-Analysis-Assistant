@@ -1,106 +1,273 @@
-const GEMINI_MODEL = "gemini-2.5-flash";
 const GROQ_MODEL =
-  process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 
-function extractQueries(text: string): string[] {
-  return text
+const GEMINI_MODEL = "gemini-2.5-flash";
+
+const REQUEST_TIMEOUT = 15_000;
+
+type SearchQuery = {
+  type:
+    | "competitors"
+    | "pricing"
+    | "features"
+    | "funding"
+    | "trends"
+    | "gaps"
+    | "geographic";
+  query: string;
+};
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeout: number
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error("Query generation timed out")
+          ),
+        timeout
+      )
+    ),
+  ]);
+}
+
+function parseQueries(text: string): SearchQuery[] {
+  const cleaned = text
+    .replace(/```json/gi, "")
     .replace(/```/g, "")
-    .split("\n")
-    .map((line) =>
-      line
-        .replace(/^\s*[-*\d.)]+\s*/, "")
-        .replace(/^["']|["']$/g, "")
-        .trim()
+    .trim();
+
+  const start = cleaned.indexOf("[");
+  const end = cleaned.lastIndexOf("]");
+
+  if (start === -1 || end === -1) {
+    throw new Error(
+      "Invalid query generator response"
+    );
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(
+      cleaned.slice(start, end + 1)
+    );
+  } catch {
+    throw new Error(
+      "Query generator returned invalid JSON"
+    );
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      "Query generator did not return an array"
+    );
+  }
+
+  const allowedTypes = new Set([
+    "competitors",
+    "pricing",
+    "features",
+    "funding",
+    "trends",
+    "gaps",
+    "geographic",
+  ]);
+
+  const queries = parsed
+    .filter(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        "query" in item &&
+        "type" in item &&
+        typeof item.query === "string" &&
+        typeof item.type === "string" &&
+        allowedTypes.has(item.type)
     )
-    .filter(Boolean)
-    .slice(0, 5);
+    .map((item) => {
+      const value = item as {
+        type: string;
+        query: string;
+      };
+
+      return {
+        type: value.type as SearchQuery["type"],
+        query: value.query.trim(),
+      };
+    })
+    .filter(
+      (item) => item.query.length > 0
+    );
+
+  if (queries.length !== 7) {
+    throw new Error(
+      `Query generator returned ${queries.length} valid queries. Expected exactly 7.`
+    );
+  }
+
+  const seenTypes = new Set<string>();
+  const seenQueries = new Set<string>();
+
+  for (const item of queries) {
+    const queryKey = item.query
+      .toLowerCase()
+      .trim();
+
+    if (seenQueries.has(queryKey)) {
+      throw new Error(
+        "Query generator returned duplicate queries"
+      );
+    }
+
+    if (seenTypes.has(item.type)) {
+      throw new Error(
+        `Query generator returned duplicate query type: ${item.type}`
+      );
+    }
+
+    seenQueries.add(queryKey);
+    seenTypes.add(item.type);
+  }
+
+  if (seenTypes.size !== 7) {
+    throw new Error(
+      "Query generator did not return all seven research categories"
+    );
+  }
+
+  return queries;
 }
 
 function buildPrompt(
-  query: string,
+  product: string,
   geographicMarket?: string,
   targetUser?: string
 ): string {
   return `
-You are a market research search specialist.
+You are a market research search-query specialist.
 
-Create 4 highly relevant web search queries for this product or industry:
+Create exactly 7 focused web search queries for this research.
 
-Product/Industry:
-${query}
+PRODUCT / INDUSTRY:
+${product}
 
-Geographic market:
+GEOGRAPHIC MARKET:
 ${geographicMarket || "Not specified"}
 
-Target user:
+TARGET USER:
 ${targetUser || "Not specified"}
 
-The queries should cover:
-1. Direct competitors and market leaders
-2. Alternative products and competing solutions
-3. Pricing and key features
-4. Market trends and emerging competitors
+Create exactly one query for each category:
 
-Make every query specific and useful for finding real companies.
+1. competitors
+2. pricing
+3. features
+4. funding
+5. trends
+6. gaps
+7. geographic
 
-Return ONLY 4 search queries, one per line.
-Do not number them.
-Do not explain anything.
+The queries must have clearly different research purposes.
+
+Requirements:
+
+- competitors:
+  Find direct and indirect competitors.
+
+- pricing:
+  Find pricing plans, subscription costs, free tiers,
+  enterprise pricing, and pricing models.
+
+- features:
+  Find important product features and capabilities.
+
+- funding:
+  Find company funding, investors, acquisitions,
+  founders, and company information.
+
+- trends:
+  Find current market trends and emerging developments.
+
+- gaps:
+  Find underserved users, unmet needs, limitations,
+  complaints, and market opportunities.
+
+- geographic:
+  Find information specific to the requested geographic
+  market. If no geographic market was provided, create
+  a broader market query.
+
+Rules:
+
+- Return exactly 7 queries.
+- Return exactly one query for each category.
+- Do not duplicate categories.
+- Do not duplicate queries.
+- Make each query specific and useful for web search.
+- Use the product/industry naturally.
+- Include the target user when useful.
+- Include the geographic market when useful.
+- Do not invent company names.
+- Do not include explanations.
+- Queries must work well with Google, Tavily, or Serper.
+- Return ONLY the JSON array.
+
+Example format:
+
+[
+  {
+    "type": "competitors",
+    "query": "AI project management software competitors remote teams"
+  },
+  {
+    "type": "pricing",
+    "query": "AI project management software pricing plans"
+  },
+  {
+    "type": "features",
+    "query": "AI project management software features remote teams"
+  },
+  {
+    "type": "funding",
+    "query": "AI project management software companies funding investors"
+  },
+  {
+    "type": "trends",
+    "query": "AI project management software market trends 2026"
+  },
+  {
+    "type": "gaps",
+    "query": "AI project management software underserved needs remote teams"
+  },
+  {
+    "type": "geographic",
+    "query": "AI project management software United States market"
+  }
+]
 `;
 }
 
-async function generateWithGemini(prompt: string): Promise<string[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is missing");
-  }
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-        },
-      }),
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Gemini failed with status ${response.status}`);
-  }
-
-  const data = await response.json();
-
-  const text =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new Error("Gemini returned an empty response");
-  }
-
-  return extractQueries(text);
-}
-
-async function generateWithGroq(prompt: string): Promise<string[]> {
+async function callGroq(
+  prompt: string
+): Promise<SearchQuery[]> {
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    throw new Error("GROQ_API_KEY is missing");
+    throw new Error(
+      "GROQ_API_KEY is missing"
+    );
   }
 
-  const response = await fetch(
+  console.log(
+    "Query Generator: Groq"
+  );
+
+  const request = fetch(
     "https://api.groq.com/openai/v1/chat/completions",
     {
       method: "POST",
@@ -110,12 +277,13 @@ async function generateWithGroq(prompt: string): Promise<string[]> {
       },
       body: JSON.stringify({
         model: GROQ_MODEL,
-        temperature: 0.2,
+        temperature: 0,
+        max_completion_tokens: 700,
         messages: [
           {
             role: "system",
             content:
-              "You generate precise web search queries. Return only the queries.",
+              "You generate focused market research search queries. Return only the requested JSON array.",
           },
           {
             role: "user",
@@ -127,52 +295,161 @@ async function generateWithGroq(prompt: string): Promise<string[]> {
     }
   );
 
+  const response = await withTimeout(
+    request,
+    REQUEST_TIMEOUT
+  );
+
   if (!response.ok) {
-    throw new Error(`Groq failed with status ${response.status}`);
+    const errorText =
+      await response.text();
+
+    throw new Error(
+      `Groq query generation failed: ${response.status}: ${errorText}`
+    );
   }
 
   const data = await response.json();
 
-  const text = data?.choices?.[0]?.message?.content;
+  const text =
+    data?.choices?.[0]?.message?.content;
 
   if (!text) {
-    throw new Error("Groq returned an empty response");
+    throw new Error(
+      "Groq returned empty query response"
+    );
   }
 
-  return extractQueries(text);
+  return parseQueries(text);
+}
+
+async function callGemini(
+  prompt: string
+): Promise<SearchQuery[]> {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      "GEMINI_API_KEY is missing"
+    );
+  }
+
+  console.log(
+    "Query Generator: Gemini fallback"
+  );
+
+  const request = fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+        },
+      }),
+      cache: "no-store",
+    }
+  );
+
+  const response = await withTimeout(
+    request,
+    REQUEST_TIMEOUT
+  );
+
+  if (!response.ok) {
+    const errorText =
+      await response.text();
+
+    throw new Error(
+      `Gemini query generation failed: ${response.status}: ${errorText}`
+    );
+  }
+
+  const data = await response.json();
+
+  const text =
+    data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!text) {
+    throw new Error(
+      "Gemini returned empty query response"
+    );
+  }
+
+  return parseQueries(text);
 }
 
 export async function generateSearchQueries(
-  query: string,
+  product: string,
   geographicMarket?: string,
   targetUser?: string
 ): Promise<string[]> {
   const prompt = buildPrompt(
-    query,
+    product,
     geographicMarket,
     targetUser
   );
 
+  let queries: SearchQuery[];
+
+  /*
+   * Groq is the primary query generator.
+   */
   try {
-    const queries = await generateWithGemini(prompt);
-
-    if (queries.length >= 3) {
-      return queries;
-    }
-
-    throw new Error("Gemini generated insufficient queries");
-  } catch (error) {
+    queries = await callGroq(prompt);
+  } catch (groqError) {
     console.warn(
-      "Gemini query generation failed. Using Groq fallback.",
-      error
+      "Groq query generation failed. Trying Gemini fallback.",
+      groqError
     );
 
-    const queries = await generateWithGroq(prompt);
-
-    if (queries.length < 3) {
-      throw new Error("Unable to generate enough search queries");
-    }
-
-    return queries;
+    /*
+     * Gemini is used only when Groq fails.
+     */
+    queries = await callGemini(prompt);
   }
+
+  /*
+   * Final validation.
+   *
+   * At this point both AI providers have returned
+   * successfully, so we only normalize the queries.
+   */
+  const seen = new Set<string>();
+
+  const uniqueQueries = queries
+    .filter((item) => {
+      const key = item.query
+        .toLowerCase()
+        .trim();
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    })
+    .map((item) => item.query.trim());
+
+  if (uniqueQueries.length !== 7) {
+    throw new Error(
+      `Expected 7 unique research queries but received ${uniqueQueries.length}`
+    );
+  }
+
+  return uniqueQueries;
 }

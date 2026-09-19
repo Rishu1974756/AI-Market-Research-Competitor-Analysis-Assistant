@@ -6,6 +6,16 @@ const GEMINI_MODEL = "gemini-2.5-flash";
 const GROQ_MODEL =
   process.env.GROQ_MODEL || "openai/gpt-oss-20b";
 
+const GEMINI_TIMEOUT = 25_000;
+const GROQ_TIMEOUT = 30_000;
+
+const MAX_AI_SOURCES = 12;
+const MAX_TITLE_LENGTH = 120;
+const MAX_SNIPPET_LENGTH = 350;
+const MAX_URL_LENGTH = 300;
+
+const MAX_COMPLETION_TOKENS = 2200;
+
 function extractJson(text: string): string {
   const cleaned = text
     .replace(/```json/gi, "")
@@ -28,167 +38,118 @@ function extractJson(text: string): string {
   return cleaned.slice(start, end + 1);
 }
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  provider: string
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(
+            `${provider} request timed out after ${
+              timeoutMs / 1000
+            } seconds`
+          )
+        );
+      }, timeoutMs);
+    }),
+  ]);
+}
+
+function compactSources(sources: unknown[]) {
+  return sources
+    .slice(0, MAX_AI_SOURCES)
+    .map((source) => {
+      const item =
+        source as Record<string, unknown>;
+
+      return {
+        title:
+          typeof item.title === "string"
+            ? item.title.slice(
+                0,
+                MAX_TITLE_LENGTH
+              )
+            : "",
+
+        url:
+          typeof item.url === "string"
+            ? item.url.slice(
+                0,
+                MAX_URL_LENGTH
+              )
+            : "",
+
+        snippet:
+          typeof item.snippet === "string"
+            ? item.snippet.slice(
+                0,
+                MAX_SNIPPET_LENGTH
+              )
+            : "",
+
+        domain:
+          typeof item.domain === "string"
+            ? item.domain
+            : "",
+      };
+    })
+    .filter(
+      (source) => source.url.length > 0
+    );
+}
+
 function buildResearchPrompt(
   query: string,
   sources: unknown[]
 ): string {
+  const compactedSources =
+    compactSources(sources);
+
   return `
 You are an expert market research analyst.
 
-Analyze this product idea or industry:
+Research topic:
 "${query}"
 
 Use ONLY the supplied web research as factual evidence.
 
 WEB RESEARCH:
-${JSON.stringify(sources, null, 2)}
+${JSON.stringify(compactedSources)}
 
-IMPORTANT SOURCE RULES:
+Create a concise professional competitive market research report.
 
-1. The supplied WEB RESEARCH is the only factual source of information.
-2. Never invent facts.
-3. Never invent competitors.
-4. Never invent pricing, funding, features, dates, statistics, market sizes, or company information.
-5. Never create, guess, construct, modify, or autocomplete a URL.
-6. Every URL returned in the JSON MUST already exist exactly in the supplied WEB RESEARCH.
-7. Never return localhost URLs.
-8. Never return example.com URLs.
-9. Never return placeholder URLs.
-10. Never use "Not found in available sources" as a URL.
-11. If a URL cannot be verified from the supplied research, return an empty string.
-12. Every source object must use an exact URL from the supplied WEB RESEARCH.
-13. Do not attach an unrelated source to a competitor just because the source mentions a similar keyword.
-14. If reliable evidence is unavailable, use "Not found in available sources".
+IMPORTANT:
+- Prefer evidence-backed information over completeness.
+- Do not invent missing information.
+- Keep every field concise.
+- Use the supplied URLs as source references.
+- Do not create URLs.
+- Return ONLY valid JSON.
 
-Create a professional competitive market research report.
+RULES:
 
-REQUIREMENTS:
+1. Identify 8 to 15 relevant competitors when supported by evidence.
+2. Never invent competitors.
+3. Every factual claim must be supported by supplied sources.
+4. Never create source URLs.
+5. Never invent pricing, funding, features, company information,
+   founding dates, or statistics.
+6. If information is unavailable, use:
+   "Not found in available sources".
+7. Competitor website must exactly match a supplied URL.
+8. Pricing must only use explicit prices found in the evidence.
+9. Identify 3 to 5 market gaps.
+10. Generate SWOT strengths, weaknesses, opportunities and threats.
+11. Generate 3 to 6 market trends when supported by evidence.
+12. Keep descriptions concise.
+13. Use exact URLs from supplied research.
+14. Return ONLY valid JSON.
 
-1. Identify 8 to 15 relevant competitors when supported by the research.
-2. Do not invent competitors to reach 8 competitors.
-3. For every competitor provide:
-   name,
-   website,
-   description,
-   targetUser,
-   pricingModel,
-   pricingTiers,
-   keyFeatures,
-   fundingStatus,
-   founded,
-   sources.
-4. PRICING INTELLIGENCE:
-   - Extract pricing only from the supplied research.
-   - Preserve exact prices.
-   - Preserve the exact currency when available.
-   - Preserve billing periods when available.
-   - Never estimate or calculate pricing.
-   - Never convert currencies.
-   - If pricing is unavailable use "Not found in available sources".
-5. Identify 3 to 5 specific market gaps or unmet needs.
-6. Generate SWOT with strengths, weaknesses, opportunities and threats.
-7. Every factual claim must be supported by supplied sources.
-8. Never create source URLs.
-9. Never invent competitors, pricing, funding, company information, features, founding dates, or market statistics.
-10. If information is unavailable use "Not found in available sources".
-11. A competitor website MUST be an exact URL appearing in WEB RESEARCH.
-12. MARKET TREND ANALYSIS:
-   - Create 3 to 6 current or emerging market trends/developments.
-   - Only use developments supported by supplied research.
-   - Each trend needs title, concise summary, direction, and sources.
-   - direction must be one of:
-     rising, stable, declining, emerging, unknown.
-   - Do not invent dates or developments.
-13. POSITIONING DATA:
-   - For each competitor provide startingPrice.
-   - startingPrice must be numeric ONLY when an explicit numeric starting price is present in supplied research.
-   - Otherwise use null.
-   - Do not estimate prices.
-   - Do not calculate prices.
-   - Do not convert currencies.
-   - Include currency only when explicitly available.
-   - featureCount must equal the number of meaningful keyFeatures returned for that competitor.
-14. Keep the report concise and useful.
-15. Use exact source URLs supplied in WEB RESEARCH.
-16. Return ONLY valid JSON.
-
-COMPETITOR SOURCE REQUIREMENTS:
-
-For every competitor:
-
-- First identify which supplied sources actually discuss that competitor.
-- Use only those sources for that competitor.
-- Add 1 to 3 relevant source objects.
-- The competitor website must be taken directly from one of those supplied sources.
-- If the supplied source only contains information about the competitor but does not contain the competitor's own website, set website to "".
-- Do NOT transform a company name into a guessed domain.
-- Do NOT generate domains such as:
-  "companyname.com"
-  "www.companyname.com"
-  "https://companyname.com"
-  unless that exact URL exists in WEB RESEARCH.
-- Do NOT use search-result URLs as the competitor website unless the URL is actually the competitor's own website.
-- A news article, market report, Crunchbase page, Wikipedia page, or other third-party page can be a SOURCE, but it should not automatically be treated as the competitor WEBSITE.
-- If a third-party source contains an explicit official website URL and that exact URL is present in the supplied research, it may be used.
-- Never use localhost.
-
-SOURCE OBJECT RULES:
-
-Every source object must have this structure:
-
-{
-  "id": "string",
-  "title": "string",
-  "url": "EXACT URL FROM SUPPLIED WEB RESEARCH",
-  "snippet": "string",
-  "domain": "string"
-}
-
-Do not create IDs or URLs that are not supported by the supplied research.
-
-PRICING TIER SOURCE RULES:
-
-Every pricing tier must contain sources from the supplied research that actually support the pricing claim.
-
-If the supplied research does not contain reliable pricing evidence:
-
-"pricingTiers": []
-
-and:
-
-"pricingModel": "Not found in available sources"
-
-Do not create a pricing tier with guessed information.
-
-MARKET GAP SOURCE RULES:
-
-Each market gap must be supported by one or more supplied sources.
-
-Do not create a market gap only from general knowledge.
-
-SWOT SOURCE RULES:
-
-Every factual SWOT point should contain relevant supplied sources.
-
-Do not make unsupported claims about the product, competitors, market, or industry.
-
-POSITIONING SOURCE RULES:
-
-Only include a numeric startingPrice when the supplied research explicitly states that price.
-
-Example:
-
-"startingPrice": 29.99,
-"currency": "USD"
-
-If no explicit numeric starting price exists:
-
-"startingPrice": null,
-"currency": ""
-
-Do not use a guessed value.
-
-Use this exact structure:
+Required structure:
 
 {
   "query": "string",
@@ -199,10 +160,7 @@ Use this exact structure:
     "targetMarket": "string",
     "geographicMarket": "string",
     "summary": "string",
-
-    "trends": [
-      "string"
-    ],
+    "trends": ["string"],
 
     "trendAnalysis": [
       {
@@ -219,13 +177,9 @@ Use this exact structure:
   "competitors": [
     {
       "name": "string",
-
-      "website": "EXACT VERIFIED URL OR EMPTY STRING",
-
+      "website": "string",
       "description": "string",
-
       "targetUser": "string",
-
       "pricingModel": "string",
 
       "pricingTiers": [
@@ -233,21 +187,14 @@ Use this exact structure:
           "name": "string",
           "price": "string",
           "billingPeriod": "string",
-          "features": [
-            "string"
-          ],
+          "features": ["string"],
           "sources": []
         }
       ],
 
-      "keyFeatures": [
-        "string"
-      ],
-
+      "keyFeatures": ["string"],
       "fundingStatus": "string",
-
       "founded": "string",
-
       "sources": []
     }
   ],
@@ -255,7 +202,6 @@ Use this exact structure:
   "comparison": [
     {
       "feature": "string",
-
       "values": [
         {
           "competitor": "string",
@@ -283,21 +229,18 @@ Use this exact structure:
         "sources": []
       }
     ],
-
     "weaknesses": [
       {
         "text": "string",
         "sources": []
       }
     ],
-
     "opportunities": [
       {
         "text": "string",
         "sources": []
       }
     ],
-
     "threats": [
       {
         "text": "string",
@@ -310,7 +253,7 @@ Use this exact structure:
     {
       "competitor": "string",
       "startingPrice": null,
-      "currency": "",
+      "currency": "string",
       "featureCount": 0,
       "sources": []
     }
@@ -318,80 +261,7 @@ Use this exact structure:
 
   "sources": []
 }
-
-Before returning the JSON, internally verify:
-
-- Every competitor exists in the supplied research.
-- Every competitor website URL exists exactly in the supplied research.
-- No website contains localhost.
-- No website contains example.com.
-- Every competitor source URL exists exactly in the supplied research.
-- Every pricing source supports the stated pricing.
-- Every positioning price is explicitly supported.
-- Every market gap has supporting sources.
-- Every trend has supporting sources.
-- No unsupported facts were added.
-- The final response contains ONLY JSON.
 `;
-}
-
-async function callGemini(
-  prompt: string
-): Promise<ResearchReport> {
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is missing");
-  }
-
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: "application/json",
-        },
-      }),
-      cache: "no-store",
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-
-    throw new Error(
-      `Gemini failed with status ${response.status}: ${errorText}`
-    );
-  }
-
-  const data = await response.json();
-
-  const text =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new Error(
-      "Gemini returned an empty response"
-    );
-  }
-
-  return JSON.parse(
-    extractJson(text)
-  ) as ResearchReport;
 }
 
 async function callGroq(
@@ -400,25 +270,42 @@ async function callGroq(
   const apiKey = process.env.GROQ_API_KEY;
 
   if (!apiKey) {
-    throw new Error("GROQ_API_KEY is missing");
+    throw new Error(
+      "GROQ_API_KEY is missing"
+    );
   }
 
-  const response = await fetch(
+  console.log("AI Provider: Groq");
+
+  const request = fetch(
     "https://api.groq.com/openai/v1/chat/completions",
     {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
+
       body: JSON.stringify({
         model: GROQ_MODEL,
-        temperature: 0.2,
+
+        temperature: 0,
+
+        max_completion_tokens:
+          MAX_COMPLETION_TOKENS,
+
+        reasoning_effort: "low",
+
+        response_format: {
+          type: "json_object",
+        },
+
         messages: [
           {
             role: "system",
             content:
-              "You are a precise market research analyst. Use only supplied evidence. Never invent URLs. Return valid JSON only.",
+              "You are a precise market research analyst. Use only supplied evidence. Return only valid JSON.",
           },
           {
             role: "user",
@@ -426,12 +313,20 @@ async function callGroq(
           },
         ],
       }),
+
       cache: "no-store",
     }
   );
 
+  const response = await withTimeout(
+    request,
+    GROQ_TIMEOUT,
+    "Groq"
+  );
+
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText =
+      await response.text();
 
     throw new Error(
       `Groq failed with status ${response.status}: ${errorText}`
@@ -449,9 +344,99 @@ async function callGroq(
     );
   }
 
-  return JSON.parse(
-    extractJson(text)
-  ) as ResearchReport;
+  try {
+    return JSON.parse(
+      extractJson(text)
+    ) as ResearchReport;
+  } catch {
+    throw new Error(
+      "Groq returned invalid JSON"
+    );
+  }
+}
+
+async function callGemini(
+  prompt: string
+): Promise<ResearchReport> {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error(
+      "GEMINI_API_KEY is missing"
+    );
+  }
+
+  console.log(
+    "AI Provider: Gemini fallback"
+  );
+
+  const request = fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType:
+            "application/json",
+        },
+      }),
+
+      cache: "no-store",
+    }
+  );
+
+  const response = await withTimeout(
+    request,
+    GEMINI_TIMEOUT,
+    "Gemini"
+  );
+
+  if (!response.ok) {
+    const errorText =
+      await response.text();
+
+    throw new Error(
+      `Gemini failed with status ${response.status}: ${errorText}`
+    );
+  }
+
+  const data = await response.json();
+
+  const text =
+    data?.candidates?.[0]?.content
+      ?.parts?.[0]?.text;
+
+  if (!text) {
+    throw new Error(
+      "Gemini returned an empty response"
+    );
+  }
+
+  try {
+    return JSON.parse(
+      extractJson(text)
+    ) as ResearchReport;
+  } catch {
+    throw new Error(
+      "Gemini returned invalid JSON"
+    );
+  }
 }
 
 export async function generateResearchReport(
@@ -464,6 +449,16 @@ export async function generateResearchReport(
     sources
   );
 
+  console.log(
+    `AI source payload: ${Math.min(
+      sources.length,
+      MAX_AI_SOURCES
+    )} sources`
+  );
+
+  /*
+   * Explicit provider selection.
+   */
   if (provider === "groq") {
     return callGroq(prompt);
   }
@@ -472,14 +467,19 @@ export async function generateResearchReport(
     return callGemini(prompt);
   }
 
+  /*
+   * Normal production flow:
+   *
+   * Groq → Gemini fallback
+   */
   try {
-    return await callGemini(prompt);
-  } catch (geminiError) {
+    return await callGroq(prompt);
+  } catch (groqError) {
     console.warn(
-      "Gemini failed. Using Groq fallback.",
-      geminiError
+      "Groq failed. Switching to Gemini.",
+      groqError
     );
 
-    return await callGroq(prompt);
+    return await callGemini(prompt);
   }
 }

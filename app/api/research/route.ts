@@ -11,6 +11,12 @@ import type {
 
 import { generateSearchQueries } from "@/lib/research-query-generator";
 
+import {
+  validateResearchTopic,
+  validateGeographicMarket,
+  validateTargetUser,
+} from "@/lib/research-topic-validator";
+
 function normalizeText(value: string): string {
   return value
     .toLowerCase()
@@ -121,9 +127,12 @@ function sourceMatchesCompetitor(
     return matches === 1;
   }
 
-  return matches >= Math.max(
-    1,
-    Math.ceil(importantWords.length * 0.5)
+  return (
+    matches >=
+    Math.max(
+      1,
+      Math.ceil(importantWords.length * 0.5)
+    )
   );
 }
 
@@ -132,9 +141,9 @@ function findCompetitorSources(
   competitorSources: ResearchSource[],
   allSources: ResearchSource[]
 ): ResearchSource[] {
-  const validOwnSources = (competitorSources || []).filter(
-    (source) => source?.url
-  );
+  const validOwnSources = (
+    competitorSources || []
+  ).filter((source) => source?.url);
 
   const matchedGlobalSources = allSources.filter((source) =>
     sourceMatchesCompetitor(competitorName, source)
@@ -314,10 +323,18 @@ export async function POST(request: NextRequest) {
     const targetUser =
       body?.targetUser?.trim();
 
+    /*
+     * Required input validation.
+     *
+     * This must happen BEFORE calling Groq so that
+     * an empty product returns HTTP 400 instead of
+     * trying to call an external AI service.
+     */
     if (!query) {
       return NextResponse.json(
         {
           success: false,
+          field: "query",
           error:
             "Product idea or industry is required.",
         },
@@ -325,6 +342,132 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    /*
+     * Use Groq AI to validate the research topic.
+     */
+    let topicValidation;
+
+    try {
+      topicValidation = await validateResearchTopic(
+        query
+      );
+    } catch (error) {
+      console.error(
+        "Research topic validation error:",
+        error
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Unable to validate the research topic. Please try again.",
+        },
+        { status: 502 }
+      );
+    }
+
+    if (!topicValidation.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          field: "query",
+          error:
+            topicValidation.reason ||
+            "Please enter a meaningful product idea, company, service, or industry.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * Geographic market is optional.
+     * Validate it only when the user provides it.
+     */
+    if (geographicMarket) {
+      let geographicValidation;
+
+      try {
+        geographicValidation =
+          await validateGeographicMarket(
+            geographicMarket
+          );
+      } catch (error) {
+        console.error(
+          "Geographic market validation error:",
+          error
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+            field: "geographicMarket",
+            error:
+              "Unable to validate the geographic market. Please try again.",
+          },
+          { status: 502 }
+        );
+      }
+
+      if (!geographicValidation.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            field: "geographicMarket",
+            error:
+              geographicValidation.reason ||
+              "Please enter a meaningful geographic market.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /*
+     * Target user is optional.
+     * Validate it only when the user provides it.
+     */
+    if (targetUser) {
+      let targetUserValidation;
+
+      try {
+        targetUserValidation =
+          await validateTargetUser(targetUser);
+      } catch (error) {
+        console.error(
+          "Target user validation error:",
+          error
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+            field: "targetUser",
+            error:
+              "Unable to validate the target user. Please try again.",
+          },
+          { status: 502 }
+        );
+      }
+
+      if (!targetUserValidation.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            field: "targetUser",
+            error:
+              targetUserValidation.reason ||
+              "Please enter a meaningful target user.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /*
+     * Mock mode remains available for development/testing.
+     * It is not exposed through the frontend.
+     */
     if (process.env.RESEARCH_MODE === "mock") {
       return NextResponse.json({
         success: true,
@@ -336,6 +479,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    /*
+     * Generate purpose-specific search queries.
+     *
+     * Expected categories:
+     * - competitors
+     * - pricing
+     * - features
+     * - funding
+     * - trends
+     * - market gaps
+     * - geographic market
+     */
     let searchQueries: string[];
 
     try {
@@ -360,7 +515,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const limitedQueries = searchQueries.slice(0, 4);
+    /*
+     * Run up to 7 different searches simultaneously.
+     */
+    const limitedQueries = searchQueries.slice(0, 7);
+
+    console.log(
+      `Running ${limitedQueries.length} research searches in parallel`
+    );
 
     let searchResults: ResearchSource[][];
 
@@ -386,9 +548,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    /*
+     * Merge all search results.
+     *
+     * Multiple searches can return the same URL,
+     * so mergeSources removes duplicate URLs.
+     *
+     * Maximum:
+     * 7 searches × up to 10 results
+     * = up to 70 raw results
+     *
+     * After deduplication:
+     * maximum 30 sources.
+     */
     const sources = mergeSources(
       searchResults
     ).slice(0, 30);
+
+    console.log(
+      `Merged research sources: ${sources.length}`
+    );
 
     if (sources.length === 0) {
       return NextResponse.json(
@@ -465,7 +644,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: "Unable to process the research request.",
+        error:
+          "Unable to process the research request.",
       },
       { status: 500 }
     );

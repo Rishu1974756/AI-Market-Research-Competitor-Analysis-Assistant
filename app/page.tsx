@@ -18,6 +18,152 @@ type HistoryItem = {
   createdAt?: string;
 };
 
+function normalizeResearchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/https?:\/\/(www\.)?/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function validateResearchTopic(query: string): string {
+  const value = query.trim();
+
+  if (!value) {
+    return "Product idea or industry is required.";
+  }
+
+  if (value.length < 3) {
+    return "Please enter a meaningful product, company, service, or industry.";
+  }
+
+  if (value.length > 200) {
+    return "Please keep the research topic under 200 characters.";
+  }
+
+  const normalized = normalizeResearchText(value);
+
+  const invalidPlaceholders = new Set([
+    "test",
+    "testing",
+    "test123",
+    "abcd",
+    "abcde",
+    "abcdef",
+    "asdf",
+    "asdfgh",
+    "asdfghjkl",
+    "qwerty",
+    "qwertyuiop",
+    "zxcv",
+    "zxcvbn",
+    "xyz",
+    "xyzabc",
+    "hello",
+    "sample",
+    "example",
+    "dummy",
+    "random",
+    "none",
+    "null",
+    "undefined",
+    "na",
+    "123",
+    "1234",
+    "12345",
+  ]);
+
+  if (invalidPlaceholders.has(normalized)) {
+    return "Please enter a meaningful product idea, company, service, or industry.";
+  }
+
+  const alphabeticCharacters = (
+    normalized.match(/[a-z]/g) || []
+  ).length;
+
+  if (alphabeticCharacters < 2) {
+    return "Please enter a meaningful product idea, company, service, or industry.";
+  }
+
+  const compactValue = normalized.replace(/\s/g, "");
+
+  if (/^(.)\1{3,}$/i.test(compactValue)) {
+    return "Please enter a meaningful research topic.";
+  }
+
+  const keyboardPatterns = [
+    "asdf",
+    "qwer",
+    "zxcv",
+    "hjkl",
+    "dfgh",
+    "jkl",
+  ];
+
+  if (
+    compactValue.length <= 12 &&
+    keyboardPatterns.some((pattern) =>
+      compactValue.includes(pattern)
+    )
+  ) {
+    return "Please enter a meaningful product idea, company, service, or industry.";
+  }
+
+  const allowedShortTerms = new Set([
+    "ai",
+    "ml",
+    "saas",
+    "fintech",
+    "healthtech",
+    "edtech",
+    "insurtech",
+    "proptech",
+    "agritech",
+    "biotech",
+    "medtech",
+    "deeptech",
+    "web3",
+    "crypto",
+    "banking",
+    "payments",
+    "insurance",
+    "education",
+    "healthcare",
+    "finance",
+    "software",
+    "security",
+    "cybersecurity",
+    "ecommerce",
+    "retail",
+    "logistics",
+    "automotive",
+    "travel",
+    "gaming",
+    "fitness",
+    "marketing",
+    "analytics",
+    "robotics",
+  ]);
+
+  const words = normalized.split(" ").filter(Boolean);
+
+  if (words.length === 1 && !allowedShortTerms.has(words[0])) {
+    const word = words[0];
+
+    const vowels = (word.match(/[aeiou]/g) || []).length;
+    const consonants = (
+      word.match(/[bcdfghjklmnpqrstvwxyz]/g) || []
+    ).length;
+
+    if (word.length <= 5 && consonants >= 3 && vowels <= 1) {
+      return "Please enter a meaningful product idea, company, service, or industry.";
+    }
+  }
+
+  return "";
+}
+
 export default function Home() {
   const router = useRouter();
 
@@ -98,7 +244,14 @@ export default function Home() {
   async function handleResearch(event: FormEvent) {
     event.preventDefault();
 
-    if (!query.trim() || loading) {
+    if (loading) {
+      return;
+    }
+
+    const validationError = validateResearchTopic(query);
+
+    if (validationError) {
+      setErrorMessage(validationError);
       return;
     }
 
